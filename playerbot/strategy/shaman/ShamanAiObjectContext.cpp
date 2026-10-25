@@ -4,6 +4,7 @@
 #include "ShamanAiObjectContext.h"
 #include "ShamanTriggers.h"
 #include "playerbot/strategy/NamedObjectContext.h"
+#include "playerbot/strategy/triggers/ChatCommandTrigger.h"
 #include "ElementalShamanStrategy.h"
 #include "RestorationShamanStrategy.h"
 #include "EnhancementShamanStrategy.h"
@@ -269,6 +270,7 @@ namespace ai
                 creators["party member cleanse spirit curse"] = [](PlayerbotAI* ai) { return new PartyMemberCleanseSpiritCurseTrigger(ai); };
                 creators["party member cleanse spirit disease"] = [](PlayerbotAI* ai) { return new PartyMemberCleanseSpiritDiseaseTrigger(ai); };
                 creators["shock"] = [](PlayerbotAI* ai) { return new ShockTrigger(ai); };
+                creators["flame shock"] = [](PlayerbotAI* ai) { return new FlameShockTrigger(ai); };
                 creators["frost shock snare"] = [](PlayerbotAI* ai) { return new FrostShockSnareTrigger(ai); };
                 creators["heroism"] = [](PlayerbotAI* ai) { return new HeroismTrigger(ai); };
                 creators["bloodlust"] = [](PlayerbotAI* ai) { return new BloodlustTrigger(ai); };
@@ -283,6 +285,7 @@ namespace ai
                 creators["earth totem"] = [](PlayerbotAI* ai) { return new EarthTotemTrigger(ai); };
                 creators["water totem"] = [](PlayerbotAI* ai) { return new WaterTotemTrigger(ai); };
                 creators["air totem"] = [](PlayerbotAI* ai) { return new AirTotemTrigger(ai); };
+                creators["place totems"] = [](PlayerbotAI* ai) { return new ChatCommandTrigger(ai, "place totems"); };
                 creators["call of the elements"] = [](PlayerbotAI* ai) { return new TotemsAreNotSummonedTrigger(ai); };
                 creators["call of the ancestors"] = [](PlayerbotAI* ai) { return new TotemsAreNotSummonedTrigger(ai); };
                 creators["call of the spirits"] = [](PlayerbotAI* ai) { return new TotemsAreNotSummonedTrigger(ai); };

@@ -97,7 +97,7 @@ bool MovementAction::FlyDirect(const WorldPosition &startPosition, const WorldPo
     if (!startPosition.isOutside())
         return false;
 
-    float totalDistance = startPosition.distance(endPosition);  //Total distance to where we want to go
+    float totalDistance = startPosition.fDist(endPosition);  //Total distance to where we want to go
     float minDist = sPlayerbotAIConfig.targetPosRecalcDistance; //Minium distance a bot should move.
     float maxDist = sPlayerbotAIConfig.reactDistance;           //Maxium distance a bot can move in one single action.
 
@@ -151,28 +151,24 @@ bool MovementAction::FlyDirect(const WorldPosition &startPosition, const WorldPo
     float originalZ = endPosition.getZ();
     bool detailedMove = ai->AllowActivity(DETAILED_MOVE_ACTIVITY);
 
-    //Crop the distance we can travel to maxDist;
-    if (totalDistance > maxDist)
+    flyHeight = std::min(100.0f, totalDistance / 10.0f);
+
+    //movePosition = movePosition.limit(startPosition, maxDist);
+
+    if (!bot->IsFlying())
     {
-        flyHeight = std::min(100.0f, totalDistance / 10.0f);
+        WorldPacket data(SMSG_SPLINE_MOVE_SET_FLYING, 9);
+        data << bot->GetPackGUID();
+        bot->SendMessageToSet(data, true);
 
-        movePosition = movePosition.limit(startPosition, maxDist);
-
-        if (!bot->IsFlying())
-        {
-            WorldPacket data(SMSG_SPLINE_MOVE_SET_FLYING, 9);
-            data << bot->GetPackGUID();
-            bot->SendMessageToSet(data, true);
-
-            if (!bot->m_movementInfo.HasMovementFlag(MOVEFLAG_FLYING))
-                bot->m_movementInfo.AddMovementFlag(MOVEFLAG_FLYING);
+        if (!bot->m_movementInfo.HasMovementFlag(MOVEFLAG_FLYING))
+            bot->m_movementInfo.AddMovementFlag(MOVEFLAG_FLYING);
 #ifdef MANGOSBOT_ONE
-            if (!bot->m_movementInfo.HasMovementFlag(MOVEFLAG_FLYING2))
-                bot->m_movementInfo.AddMovementFlag(MOVEFLAG_FLYING2);
+        if (!bot->m_movementInfo.HasMovementFlag(MOVEFLAG_FLYING2))
+            bot->m_movementInfo.AddMovementFlag(MOVEFLAG_FLYING2);
 #endif
-            if (!bot->m_movementInfo.HasMovementFlag(MOVEFLAG_LEVITATING))
-                bot->m_movementInfo.AddMovementFlag(MOVEFLAG_LEVITATING);
-        }
+        if (!bot->m_movementInfo.HasMovementFlag(MOVEFLAG_LEVITATING))
+            bot->m_movementInfo.AddMovementFlag(MOVEFLAG_LEVITATING);
     }
     else
     {
@@ -182,7 +178,7 @@ bool MovementAction::FlyDirect(const WorldPosition &startPosition, const WorldPo
         {
             float height = terrain->GetHeightStatic(bot->GetPositionX(), bot->GetPositionY(), bot->GetPositionZ());
             float ground = terrain->GetWaterOrGroundLevel(bot->GetPositionX(), bot->GetPositionY(), bot->GetPositionZ(), height);
-            if (bot->GetPositionZ() > originalZ && (bot->GetPositionZ() - originalZ < 5.0f) && (fabs(originalZ - ground) < 5.0f))
+            if (bot->GetPositionZ() < ground + 5.0f)
                 needLand = true;
         }
         if (needLand)
@@ -207,9 +203,9 @@ bool MovementAction::FlyDirect(const WorldPosition &startPosition, const WorldPo
         if (movePosition.currentHeight() > flyHeight && startPosition.IsInLineOfSight(movePosition))
             break;
 
-        movePosition.setZ(movePosition.getZ() + 5.0f);
+        //movePosition.setZ(movePosition.getZ() + 5.0f);
 
-        if (movePosition.distance(startPosition) > maxDist)
+        if (movePosition.fDist(startPosition) > maxDist)
             movePosition = movePosition.limit(startPosition, maxDist);
     }
 
@@ -225,24 +221,14 @@ bool MovementAction::FlyDirect(const WorldPosition &startPosition, const WorldPo
     MotionMaster& mm = *bot->GetMotionMaster();
 
     //Clean movement if not already moving the same way.
+    
     if (mm.GetCurrent()->GetMovementGeneratorType() != POINT_MOTION_TYPE)
     {
         ai->StopMoving();
         mm.Clear();
     }
-    else
-    {
-        float x, y, z;
-        mm.GetDestination(x, y, z);
-
-        if (movePosition.distance(WorldPosition(movePosition.getMapId(), x, y, z, 0)) > minDist)
-        {
-            ai->StopMoving();
-            mm.Clear();
-        }
-    }
-
-    bool flying = bot->IsFlying() || bot->IsFreeFlying();
+    
+    bool flying = bot->IsFlying() && bot->IsFreeFlying();
     mm.MovePoint(movePosition.getMapId(), Position(movePosition.getX(), movePosition.getY(), movePosition.getZ(), 0.f), flying  ? FORCED_MOVEMENT_FLIGHT : FORCED_MOVEMENT_RUN, flying ? bot->GetSpeed(MOVE_FLIGHT) : 0.f, flying);
     WaitForReach(movePosition.distance(WorldPosition(movePosition.getX(), movePosition.getY(), movePosition.getZ(), 0.f)));
     
@@ -445,6 +431,20 @@ bool MovementAction::UseTransport(PlayerbotAI* ai, uint32 entry, WorldPosition d
     Player* bot = ai->GetBot();
     WorldPosition botPos(bot);
 
+    // Mesa elevators move vertically while their X/Y position remains
+    // effectively unchanged. Use 3D distance so upper and lower stops
+    // are not treated as the same dock position.
+    auto dockDistanceSq = [&dockPosition](GenericTransport* trans) -> float
+    {
+        GameObjectInfo const* info =
+            sGOStorage.LookupEntry<GameObjectInfo>(trans->GetEntry());
+
+        if (info && info->displayId == 360) // Elevatorcar.m2
+            return dockPosition.sqDistance(WorldPosition(trans));
+
+        return dockPosition.sqDistance2d(WorldPosition(trans));
+    };
+
     GenericTransport* transport = bot->GetTransport();
 
     if (transport)
@@ -454,7 +454,7 @@ bool MovementAction::UseTransport(PlayerbotAI* ai, uint32 entry, WorldPosition d
         if (transportName.empty())
             transportName = data->name;
 
-        if (dockPosition.mapid == bot->GetMapId() && dockPosition.sqDistance2d(transport) < INTERACTION_DISTANCE * INTERACTION_DISTANCE)
+        if (dockPosition.mapid == bot->GetMapId() && dockDistanceSq(transport) < INTERACTION_DISTANCE * INTERACTION_DISTANCE)
         {
             MoveOffTransport(ai, exitPosition, doTeleport);
             ai->TellDebug(ai->GetMaster(), "Leaving transport " + transportName, "debug move");
@@ -475,7 +475,7 @@ bool MovementAction::UseTransport(PlayerbotAI* ai, uint32 entry, WorldPosition d
 
     for (auto& trans : dockPosition.getTransports(entry))
     {
-        float distance = dockPosition.sqDistance2d(trans);
+        float distance = dockDistanceSq(trans);
 
         if (minDist && distance > minDist)
             continue;
@@ -489,7 +489,7 @@ bool MovementAction::UseTransport(PlayerbotAI* ai, uint32 entry, WorldPosition d
             transportName = data->name;
     }
 
-    if (transport && dockPosition.mapid == bot->GetMapId() && dockPosition.sqDistance2d(transport) < INTERACTION_DISTANCE * INTERACTION_DISTANCE)
+    if (transport && dockPosition.mapid == bot->GetMapId() && dockDistanceSq(transport) < INTERACTION_DISTANCE * INTERACTION_DISTANCE)
     {
         MoveOnTransport(ai, transport, doTeleport);
 
@@ -719,7 +719,21 @@ TravelPath MovementAction::ResolveMovePath(const WorldPosition& startPosition, c
         outMovePath = lastMove.lastPath;
 
     if (outMovePath.empty())
+    {
+        // No route. MovePoint ignores the map, and the navmesh pathfinder can't build a path this long, so the bot
+        // would walk a straight line toward the destination's coordinates and height, through terrain and under the map.
+        if (startPosition.getMapId() != endPosition.getMapId() || (!bot->InBattleGround() && sServerFacade.IsDistanceGreaterThan(totalDistance, sPlayerbotAIConfig.sightDistance * 3)))
+        {
+            if (mover == bot)
+                ai->StopMoving();
+            else
+                mover->InterruptMoving(true);
+
+            return outMovePath;
+        }
+
         outMovePath.addPoint(endPosition);
+    }
 
     return outMovePath;
 }
@@ -796,6 +810,11 @@ bool MovementAction::HandleSpecialMovement(TravelPath& path)
         return true;
     }
 
+    if (currentPoint.type == PathNodeType::NODE_TRANSPORT && sPlayerbotAIConfig.transportTeleportType == 2) //Instant teleport case
+    {
+        return bot->TeleportTo(nextPoint.point.getMapId(), nextPoint.point.getX(), nextPoint.point.getY(), nextPoint.point.getZ(), nextPoint.point.getO(), 0);
+    }
+    
     if (currentPoint.type == PathNodeType::NODE_TRANSPORT)
     {
         bool usedTransport = UseTransport(ai, currentPoint.entry, currentPoint.point, nextPoint.point, sPlayerbotAIConfig.transportTeleportType > 0);
@@ -810,7 +829,7 @@ bool MovementAction::HandleSpecialMovement(TravelPath& path)
         else
         {
             if (!bot->GetTransport())
-                return bot->TeleportTo(nextPoint.point.getMapId(), nextPoint.point.getX(), nextPoint.point.getY(), nextPoint.point.getZ(), nextPoint.point.getO(), 0) ? true : false;
+                return bot->TeleportTo(nextPoint.point.getMapId(), nextPoint.point.getX(), nextPoint.point.getY(), nextPoint.point.getZ(), nextPoint.point.getO(), 0);
 
             lastTransportEntry = nextPoint.entry;
         }
@@ -821,9 +840,9 @@ bool MovementAction::HandleSpecialMovement(TravelPath& path)
         WaitForReach(1000.0f);
         return true;
     }
-
+    
     if (nextPoint.type == PathNodeType::NODE_FLIGHTPATH && nextPoint.entry)
-        return UseTaxi(ai, nextPoint.entry, true) ? true : false;
+        return UseTaxi(ai, nextPoint.entry, true);
 
     if (nextPoint.type == PathNodeType::NODE_TELEPORT && nextPoint.entry)
     {
@@ -878,9 +897,13 @@ void MovementAction::UpdateFlyingState(
 
         Position pos = bot->GetPosition();
 #ifdef MANGOSBOT_TWO
-        if (!bot->GetMap()->IsInLineOfSight(pos.x, pos.y, pos.z + 100.f, movePosition.getX(), movePosition.getY(), movePosition.getZ() + 100.f, bot->GetPhaseMask(), true))
+        if (!movePosition.isFinite() || !std::isfinite(pos.x) || !std::isfinite(pos.y) || !std::isfinite(pos.z))
+            WorldPosition::logNonFinite("MovementActions fly check", movePosition);
+        else if (!bot->GetMap()->IsInLineOfSight(pos.x, pos.y, pos.z + 100.f, movePosition.getX(), movePosition.getY(), movePosition.getZ() + 100.f, bot->GetPhaseMask(), true))
 #else
-        if (!bot->GetMap()->IsInLineOfSight(pos.x, pos.y, pos.z + 100.f, movePosition.getX(), movePosition.getY(), movePosition.getZ() + 100.f, true))
+        if (!movePosition.isFinite() || !std::isfinite(pos.x) || !std::isfinite(pos.y) || !std::isfinite(pos.z))
+            WorldPosition::logNonFinite("MovementActions fly check", movePosition);
+        else if (!bot->GetMap()->IsInLineOfSight(pos.x, pos.y, pos.z + 100.f, movePosition.getX(), movePosition.getY(), movePosition.getZ() + 100.f, true))
 #endif
             needFly = false;
 
@@ -1169,14 +1192,15 @@ bool MovementAction::MoveTo2(const WorldPosition& endPos, bool idle, bool react,
         return false;
     }
 
-    if (movePath.getFront().getMapId() == endPos.getMapId() && !endPos.isUnderWater())
+    // Only touch points on the map the bot is actually on, so a cross-map destination can never
+    // resolve another map's terrain/VMap. (The old front-map guard did not imply the bot's map.)
+    // Keep the "don't surface a deliberate dive" rule, but only for a destination on our own map.
+    bool endUnderwater = endPos.getMapId() == bot->GetMapId() && endPos.isUnderWater();
+    for (auto& p : movePath.getPath())
     {
-        for (auto& p : movePath.getPath())
+        if (p.point.getMapId() == bot->GetMapId() && p.point.isUnderWater() && !endUnderwater)
         {
-            if (p.point.isUnderWater())
-            {
-                p.point.setAtWaterSurface();
-            }
+            p.point.setAtWaterSurface();
         }
     }
 
@@ -1229,7 +1253,8 @@ bool MovementAction::MoveTo2(const WorldPosition& endPos, bool idle, bool react,
 #ifndef MANGOSBOT_ZERO
     if (bot->IsFreeFlying())
     {
-        if (bot->HasMovementFlag(MOVEFLAG_SWIMMING) && startPos.isInWater() && !startPos.isUnderWater() && !endPos.isInWater())
+        if (bot->HasMovementFlag(MOVEFLAG_SWIMMING) && startPos.isInWater() && !startPos.isUnderWater() &&
+            (endPos.getMapId() != bot->GetMapId() || !endPos.isInWater()))
         {
             generatePath = true;
         }
@@ -2099,9 +2124,13 @@ bool MovementAction::MoveTo(uint32 mapId, float x, float y, float z, bool idle, 
             // only use in clear LOS betweek points
             Position pos = bot->GetPosition();
 #ifdef MANGOSBOT_TWO
-            if (!bot->GetMap()->IsInLineOfSight(pos.x, pos.y, pos.z + 100.f, movePosition.getX(), movePosition.getY(), movePosition.getZ() + 100.f, bot->GetPhaseMask(), true))
+            if (!movePosition.isFinite() || !std::isfinite(pos.x) || !std::isfinite(pos.y) || !std::isfinite(pos.z))
+                WorldPosition::logNonFinite("MovementActions fly check", movePosition);
+            else if (!bot->GetMap()->IsInLineOfSight(pos.x, pos.y, pos.z + 100.f, movePosition.getX(), movePosition.getY(), movePosition.getZ() + 100.f, bot->GetPhaseMask(), true))
 #else
-            if (!bot->GetMap()->IsInLineOfSight(pos.x, pos.y, pos.z + 100.f, movePosition.getX(), movePosition.getY(), movePosition.getZ() + 100.f, true))
+            if (!movePosition.isFinite() || !std::isfinite(pos.x) || !std::isfinite(pos.y) || !std::isfinite(pos.z))
+                WorldPosition::logNonFinite("MovementActions fly check", movePosition);
+            else if (!bot->GetMap()->IsInLineOfSight(pos.x, pos.y, pos.z + 100.f, movePosition.getX(), movePosition.getY(), movePosition.getZ() + 100.f, true))
 #endif
                 needFly = false;
 
@@ -2453,6 +2482,16 @@ bool MovementAction::Follow(Unit* target, float distance, float angle)
     ClearIdleState();
 
 #ifndef MANGOSBOT_ZERO
+    //Land
+    bool needLand = false;
+
+    if (const TerrainInfo* terrain = bot->GetTerrain())
+    {
+        float height = terrain->GetHeightStatic(bot->GetPositionX(), bot->GetPositionY(), bot->GetPositionZ());
+        float ground = terrain->GetWaterOrGroundLevel(bot->GetPositionX(), bot->GetPositionY(), bot->GetPositionZ(), height);
+        if (bot->GetPositionZ() < ground + 5.0f)
+            needLand = true;
+    }
     if (bot->IsFreeFlying())
     {
         if (!bot->IsFlying() && target->IsFlying())
@@ -2474,16 +2513,6 @@ bool MovementAction::Follow(Unit* target, float distance, float angle)
 
         if (bot->IsFlying() && !target->IsFlying())
         {
-            //Land
-            bool needLand = false;
-
-            if (const TerrainInfo* terrain = bot->GetTerrain())
-            {
-                float height = terrain->GetHeightStatic(bot->GetPositionX(), bot->GetPositionY(), bot->GetPositionZ());
-                float ground = terrain->GetWaterOrGroundLevel(bot->GetPositionX(), bot->GetPositionY(), bot->GetPositionZ(), height);
-                if (bot->GetPositionZ() < ground + 5.0f)
-                    needLand = true;
-            }
             if (needLand)
             {
                 WorldPacket data(SMSG_SPLINE_MOVE_UNSET_FLYING, 9);
@@ -2504,30 +2533,36 @@ bool MovementAction::Follow(Unit* target, float distance, float angle)
             }
         }
         WorldPosition moveToPos = tarPos;
-        PathFinder pathfinder(bot);
-        //Use standard pathfinder to find a route.
-        WorldPosition prevPoint = botPos;
-        pathfinder.calculate(moveToPos.getVector3(), tarPos.getVector3());
-        Movement::PointsArray& pathPoints = pathfinder.getPath();
-        if (pathPoints.size() >= 2)
+        Formation* formation = AI_VALUE(Formation*, "formation");
+        if (formation)
         {
-            for (uint32 i = 1; i < pathPoints.size() - 1; i++)
-            {
-                WorldPosition pathPoint(bot->GetMapId(), pathPoints[i].x, pathPoints[i].y, pathPoints[i].z);
-                if (pathPoint.canFly())
-                {
-                    prevPoint = pathPoint;
-                    continue;
-                }
-                if (!MoveTo(prevPoint))
-                {
-                    return MoveTo(pathPoint);
-                }
-                return true;
-            }
+            WorldLocation loc = formation->GetLocation();
+            if (!Formation::IsNullLocation(loc) && bot->GetMapId() == loc.mapid)
+                moveToPos = WorldPosition(loc.mapid, loc.coord_x, loc.coord_y, loc.coord_z, loc.orientation);
         }
-        moveToPos = tarPos;
+
         return MoveTo(moveToPos);
+    }
+    else
+    {
+        if (needLand)
+        {
+            WorldPacket data(SMSG_SPLINE_MOVE_UNSET_FLYING, 9);
+            data << bot->GetPackGUID();
+            bot->SendMessageToSet(data, true);
+
+            if (bot->m_movementInfo.HasMovementFlag(MOVEFLAG_FLYING))
+                bot->m_movementInfo.RemoveMovementFlag(MOVEFLAG_FLYING);
+#ifdef MANGOSBOT_ONE
+            if (bot->m_movementInfo.HasMovementFlag(MOVEFLAG_FLYING2))
+                bot->m_movementInfo.RemoveMovementFlag(MOVEFLAG_FLYING2);
+#endif
+            if (bot->m_movementInfo.HasMovementFlag(MOVEFLAG_LEVITATING))
+                bot->m_movementInfo.RemoveMovementFlag(MOVEFLAG_LEVITATING);
+
+            if(!bot->m_movementInfo.HasMovementFlag(MOVEFLAG_FALLING))
+                bot->m_movementInfo.RemoveMovementFlag(MOVEFLAG_FALLING);
+        }
     }
 #endif
 
@@ -2597,8 +2632,28 @@ bool MovementAction::ChaseTo(WorldObject* obj, float distance, float angle)
     }
 #endif
 
+    /* Disabled: the active combat stance determines melee chase positioning.
     if (ai->HasStrategy("behind", BotState::BOT_STATE_COMBAT))
         angle = GetFollowAngle() / 3 + obj->GetOrientation() + M_PI;
+    */
+
+    if (!ai->IsRanged(bot) && obj->IsUnit() && sServerFacade.IsHostileTo(bot, static_cast<Unit*>(obj)))
+    {
+        Unit* target = static_cast<Unit*>(obj);
+        Stance* stance = AI_VALUE(Stance*, "stance");
+
+        if (stance && stance->getName() != "turnback")
+        {
+            WorldLocation stanceLoc = stance->GetLocation();
+
+            if (!Formation::IsNullLocation(stanceLoc) && stanceLoc.mapid != uint32(-1))
+            {
+                float absAngle = atan2(stanceLoc.coord_y - target->GetPositionY(), stanceLoc.coord_x - target->GetPositionX());
+
+                angle = absAngle - target->GetOrientation();
+            }
+        }
+    }
 
     UpdateMovementState();
 
@@ -2764,8 +2819,8 @@ void MovementAction::WaitForReach(float distance)
     if (duration > sPlayerbotAIConfig.maxWaitForMove)
         duration = sPlayerbotAIConfig.maxWaitForMove;
 
-    /*Unit* target = *ai->GetAiObjectContext()->GetValue<Unit*>("current target");
-    Unit* player = *ai->GetAiObjectContext()->GetValue<Unit*>("enemy player target");
+    /*Unit* target = *ai->GetAiObjectContext()->GetValue<ObjectGuid>("current target");
+    Unit* player = *ai->GetAiObjectContext()->GetValue<ObjectGuid>("enemy player target");
     if ((player || target) && duration > sPlayerbotAIConfig.globalCoolDown)
         duration = sPlayerbotAIConfig.globalCoolDown;*/
 
@@ -3191,7 +3246,7 @@ bool MovementAction::GeneratePathAvoidingHazards(std::vector<WorldPosition>& mov
 
 bool FleeAction::Execute(Event& event)
 {
-    return Flee(AI_VALUE(Unit*, "current target"));
+    return Flee(ai->GetUnit(AI_VALUE(ObjectGuid, "current target")));
 }
 
 bool FleeWithPetAction::Execute(Event& event)
@@ -3207,12 +3262,12 @@ bool FleeWithPetAction::Execute(Event& event)
         }
     }
 
-    return Flee(AI_VALUE(Unit*, "current target"));
+    return Flee(ai->GetUnit(AI_VALUE(ObjectGuid, "current target")));
 }
 
 bool RunAwayAction::Execute(Event& event)
 {
-    return Flee(AI_VALUE(Unit*, "master target"));
+    return Flee(ai->GetUnit(AI_VALUE(ObjectGuid, "master target")));
 }
 
 bool MoveToLootAction::Execute(Event& event)
@@ -3246,15 +3301,19 @@ bool MoveToLootAction::Execute(Event& event)
         ai->TellPlayerNoFacing(GetMaster(), out);
     }
 
-    if(sServerFacade.IsWithinLOSInMap(bot, wo))
-        return MoveNear(wo, sPlayerbotAIConfig.contactDistance);
+    if (sServerFacade.IsWithinLOSInMap(bot, wo))
+    {
+        bool move = MoveNear(wo, sPlayerbotAIConfig.contactDistance);
+        WaitForReach(bot->GetDistance(wo));
+        return move;
+    }
 
     return MoveTo(WorldPosition(wo));
 }
 
 bool MoveOutOfEnemyContactAction::Execute(Event& event)
 {
-    Unit* target = AI_VALUE(Unit*, "current target");
+    Unit* target = ai->GetUnit(AI_VALUE(ObjectGuid, "current target"));
     if (!target)
         return false;
 
@@ -3268,7 +3327,7 @@ bool MoveOutOfEnemyContactAction::isUseful()
 
 bool SetFacingTargetAction::Execute(Event& event)
 {
-    Unit* target = AI_VALUE(Unit*, "current target");
+    Unit* target = ai->GetUnit(AI_VALUE(ObjectGuid, "current target"));
     if (!target)
         return false;
 
@@ -3300,7 +3359,7 @@ bool SetFacingTargetAction::isPossible()
 
 bool SetBehindTargetAction::Execute(Event& event)
 {
-    Unit* target = AI_VALUE(Unit*, "current target");
+    Unit* target = ai->GetUnit(AI_VALUE(ObjectGuid, "current target"));
     if (!target)
         return false;
 
@@ -3341,7 +3400,7 @@ bool SetBehindTargetAction::isUseful()
     if(!MovementAction::isUseful())
         return false;
 
-    Unit* target = AI_VALUE(Unit*, "current target");
+    Unit* target = ai->GetUnit(AI_VALUE(ObjectGuid, "current target"));
     if (target && !bot->IsFacingTargetsBack(target))
     {
         // Don't move behind if the target is too far away
@@ -3357,7 +3416,7 @@ bool SetBehindTargetAction::isPossible()
     if(MovementAction::isPossible())
     {
         // Check if the target is targeting the bot
-        Unit* target = AI_VALUE(Unit*, "current target");
+        Unit* target = ai->GetUnit(AI_VALUE(ObjectGuid, "current target"));
         if (target)
         {
             // If the target is a player
@@ -3575,7 +3634,7 @@ bool JumpAction::Execute(ai::Event &event)
             if (!ai->HasRealPlayerMaster())
                 return false;
 
-            Unit* followTarget = AI_VALUE(Unit*, "follow target");
+            Unit* followTarget = ai->GetUnit(AI_VALUE(ObjectGuid, "follow target"));
             if (!followTarget || !ai->IsSafe(followTarget))
                 return false;
 
@@ -3605,7 +3664,7 @@ bool JumpAction::Execute(ai::Event &event)
 
         if (options == "chase")
         {
-            Unit* chaseTarget = AI_VALUE(Unit*, "current target");
+            Unit* chaseTarget = ai->GetUnit(AI_VALUE(ObjectGuid, "current target"));
             if (!chaseTarget || !ai->IsSafe(chaseTarget))
                 return false;
 
@@ -3790,8 +3849,8 @@ WorldPosition JumpAction::CalculateJumpParameters(const WorldPosition& src, Unit
     float const m_gravity = 19.2911f;
     float const timeForMaxHeight = vSpeed / m_gravity;
     float velocity = sqrt(vSpeed * vSpeed + hSpeed * hSpeed);
-    double jumpVerticalAngle = 48.f * M_PI / 180; // approximate
-    maxHeight = vSpeed * timeForMaxHeight - m_gravity * timeForMaxHeight * timeForMaxHeight / 2;   
+    double jumpVerticalAngle = hSpeed != 0.f ? atan(vSpeed / hSpeed) : 90.f * M_PI / 180;
+    maxHeight = vSpeed * timeForMaxHeight - m_gravity * timeForMaxHeight * timeForMaxHeight / 2;  
 
     // jump in place
     if (hSpeed == 0.f)
@@ -3884,7 +3943,6 @@ WorldPosition JumpAction::CalculateJumpParameters(const WorldPosition& src, Unit
 #else
             foundCollision = jumper->GetMap()->GetHitPosition(ox, oy, oz + 0.5f, fx, fy, fz, -0.5f);
 #endif
-
             if (!foundCollision)
             {
                 fx -= jumper->GetCollisionWidth() * vcos;
@@ -3922,18 +3980,16 @@ WorldPosition JumpAction::CalculateJumpParameters(const WorldPosition& src, Unit
         {
             // hit something while ascending
             if (ascending)
-            {
                 goodLanding = false;
-                // reduce landing height by collision height
-                float fz_mod = fz - CONTACT_DISTANCE - jumper->GetCollisionHeight();
+            // reduce landing height by collision height
+            float fz_mod = fz - CONTACT_DISTANCE - jumper->GetCollisionHeight();
 #ifdef MANGOSBOT_TWO
-                jumper->GetMap()->GetHitPosition(fx, fy, fz, fx, fy, fz_mod, jumper->GetPhaseMask(), -0.5f);
+            jumper->GetMap()->GetHitPosition(fx, fy, fz, fx, fy, fz_mod, jumper->GetPhaseMask(), -0.5f);
 #else
-                jumper->GetMap()->GetHitPosition(fx, fy, fz, fx, fy, fz_mod, -0.5f);
+            jumper->GetMap()->GetHitPosition(fx, fy, fz, fx, fy, fz_mod, -0.5f);
 #endif
-                fz = fz_mod;
-                //fz = fz - CONTACT_DISTANCE - jumper->GetCollisionHeight();
-            }
+            fz = fz_mod;
+            //fz = fz - CONTACT_DISTANCE - jumper->GetCollisionHeight();
 
             WorldPosition destination = WorldPosition(src.getMapId(), fx, fy ,fz);
             if (!IsJumpSafe(src, destination, jumper))
@@ -3943,7 +3999,7 @@ WorldPosition JumpAction::CalculateJumpParameters(const WorldPosition& src, Unit
             timeToLand = CalculateJumpTime(fz - (src.getZ() + 0.5f), vSpeed, ascending);
 
             // some error in time calculations - cancel the jump
-            if (timeToLand == 0.f)
+            if (timeToLand <= 0.f)
                 return WorldPosition();
 
             // maybe hit a wall while descending

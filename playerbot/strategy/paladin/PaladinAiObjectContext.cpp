@@ -242,6 +242,7 @@ namespace ai
                 creators["seal"] = [](PlayerbotAI* ai) { return new SealTrigger(ai); };
                 creators["art of war"] = [](PlayerbotAI* ai) { return new ArtOfWarTrigger(ai); };
                 creators["blessing"] = [](PlayerbotAI* ai) { return new BlessingTrigger(ai); };
+                creators["target no judgement"] = [](PlayerbotAI* ai) { return new TargetNoJudgementTrigger(ai); };
                 creators["greater blessing"] = [](PlayerbotAI* ai) { return new GreaterBlessingTrigger(ai); };
                 creators["blessing of might"] = [](PlayerbotAI* ai) { return new BlessingOfMightTrigger(ai); };
                 creators["blessing of wisdom"] = [](PlayerbotAI* ai) { return new BlessingOfWisdomTrigger(ai); };
@@ -314,6 +315,7 @@ namespace ai
                 creators["seal of vengeance"] = [](PlayerbotAI* ai) { return new CastSealOfVengeanceAction(ai); };
                 creators["seal of blood"] = [](PlayerbotAI* ai) { return new CastSealOfBloodAction(ai); };
                 creators["seal of the crusader"] = [](PlayerbotAI* ai) { return new CastSealOfTheCrusaderAction(ai); };
+                creators["prot seal"] = [](PlayerbotAI* ai) { return new ProtSealAction(ai); };
                 creators["pve blessing"] = [](PlayerbotAI* ai) { return new CastPveBlessingAction(ai); };
                 creators["pve greater blessing"] = [](PlayerbotAI* ai) { return new CastPveGreaterBlessingAction(ai); };
                 creators["pvp blessing"] = [](PlayerbotAI* ai) { return new CastPvpBlessingAction(ai); };

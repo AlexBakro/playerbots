@@ -99,6 +99,15 @@ namespace ai
         virtual bool isUseful() override { return AI_VALUE2(bool, "combat", "self target"); }
     };
 
+    class ProtSealAction : public CastBuffSpellAction
+    {
+    public:
+        ProtSealAction(PlayerbotAI* ai) : CastBuffSpellAction(ai, "prot seal") {}
+        virtual bool isPossible() { return true; }
+        virtual bool isUseful() override { return AI_VALUE2(bool, "combat", "self target"); }
+        virtual bool Execute(Event& event);
+    };
+
     // Pick the aura that is not being used by another paladin
 	class CastPaladinAuraAction : public CastBuffSpellAction
 	{
@@ -307,7 +316,7 @@ namespace ai
     class CastGreaterBlessingOfMightOnPartyAction : public GreaterBuffOnPartyAction
     {
     public:
-		CastGreaterBlessingOfMightOnPartyAction(PlayerbotAI* ai) : GreaterBuffOnPartyAction(ai, "greater blessing of might") {}
+		CastGreaterBlessingOfMightOnPartyAction(PlayerbotAI* ai) : GreaterBuffOnPartyAction(ai, "greater blessing of might", "blessing of might") {}
     };
 
 	class CastBlessingOfWisdomAction : public CastBuffSpellAction
@@ -333,7 +342,7 @@ namespace ai
     class CastGreaterBlessingOfWisdomOnPartyAction : public GreaterBuffOnPartyAction
     {
     public:
-        CastGreaterBlessingOfWisdomOnPartyAction(PlayerbotAI* ai) : GreaterBuffOnPartyAction(ai, "greater blessing of wisdom") {}
+        CastGreaterBlessingOfWisdomOnPartyAction(PlayerbotAI* ai) : GreaterBuffOnPartyAction(ai, "greater blessing of wisdom", "blessing of wisdom") {}
     };
 
 	class CastBlessingOfKingsAction : public CastBuffSpellAction
@@ -359,7 +368,7 @@ namespace ai
     class CastGreaterBlessingOfKingsOnPartyAction : public GreaterBuffOnPartyAction
     {
     public:
-        CastGreaterBlessingOfKingsOnPartyAction(PlayerbotAI* ai) : GreaterBuffOnPartyAction(ai, "greater blessing of kings") {}
+        CastGreaterBlessingOfKingsOnPartyAction(PlayerbotAI* ai) : GreaterBuffOnPartyAction(ai, "greater blessing of kings", "blessing of kings") {}
     };
 
 	class CastBlessingOfSanctuaryAction : public CastBuffSpellAction
@@ -385,7 +394,7 @@ namespace ai
     class CastGreaterBlessingOfSanctuaryOnPartyAction : public GreaterBuffOnPartyAction
     {
     public:
-        CastGreaterBlessingOfSanctuaryOnPartyAction(PlayerbotAI* ai) : GreaterBuffOnPartyAction(ai, "greater blessing of sanctuary") {}
+        CastGreaterBlessingOfSanctuaryOnPartyAction(PlayerbotAI* ai) : GreaterBuffOnPartyAction(ai, "greater blessing of sanctuary", "blessing of sanctuary") {}
     };
 
     class CastBlessingOfLightAction : public CastBuffSpellAction
@@ -411,7 +420,7 @@ namespace ai
     class CastGreaterBlessingOfLightOnPartyAction : public GreaterBuffOnPartyAction
     {
     public:
-        CastGreaterBlessingOfLightOnPartyAction(PlayerbotAI* ai) : GreaterBuffOnPartyAction(ai, "greater blessing of light") {}
+        CastGreaterBlessingOfLightOnPartyAction(PlayerbotAI* ai) : GreaterBuffOnPartyAction(ai, "greater blessing of light", "blessing of light") {}
     };
 
     class CastBlessingOfSalvationAction : public CastBuffSpellAction
@@ -437,7 +446,7 @@ namespace ai
     class CastGreaterBlessingOfSalvationOnPartyAction : public GreaterBuffOnPartyAction
     {
     public:
-        CastGreaterBlessingOfSalvationOnPartyAction(PlayerbotAI* ai) : GreaterBuffOnPartyAction(ai, "greater blessing of salvation", true) {}
+        CastGreaterBlessingOfSalvationOnPartyAction(PlayerbotAI* ai) : GreaterBuffOnPartyAction(ai, "greater blessing of salvation", "blessing of salvation", true) {}
 
         bool isUseful() override
         {
@@ -648,7 +657,7 @@ namespace ai
     {
     public:
         CastTurnUndeadAction(PlayerbotAI* ai) : CastBuffSpellAction(ai, "turn undead") {}
-        virtual Value<Unit*>* GetTargetValue() { return context->GetValue<Unit*>("cc target", getName()); }
+        virtual Value<ObjectGuid>* GetTargetValue() { return context->GetValue<ObjectGuid>("cc target", getName()); }
     };
 
 	class CastHandOfSacrificeAction : public BuffOnPartyAction
